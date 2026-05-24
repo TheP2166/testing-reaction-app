@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chain Reaction - AI Video Recorder</title>
+    <!-- Load MediaPipe Selfie Segmentation scripts for real-time background removal -->
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #fff;
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: 700px;
+            background: #000;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        /* The hidden camera stream feed */
+        #webcam {
+            display: none;
+        }
+        /* The dynamic canvas where AI and user face are merged */
+        #outputCanvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            z-index: 10;
+        }
+        .ai-prompt {
+            width: 80%;
+            padding: 12px;
+            border-radius: 25px;
+            border: 1px solid #444;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+        .record-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: #ff3b30;
+            border: 5px solid #fff;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .record-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <h2 style="margin-bottom: 15px;">AI Scenery Studio</h2>
+    
+    <div class="container">
+        <!-- Hidden raw camera feed -->
+        <video id="webcam" autoplay playsinline></video>
+        
+        <!-- Visible canvas rendering the composite video -->
+        <canvas id="outputCanvas" width="720" height="1280"></canvas>
+        
+        <div class="controls">
+            <input type="text" id="promptInput" class="ai-prompt" value="A futuristic cyberpunk neon city street at night, cinematic lighting">
+            <button class="record-btn" id="actionBtn" onclick="updateBackground()"></button>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('outputCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const promptInput = document.getElementById('promptInput');
+
+        // Create a static fallback background image object
+        let backgroundImg = new Image();
+        backgroundImg.src = 'https://unsplash.com'; // Cyberpunk placeholder
+
+        // Initialize MediaPipe Selfie Segmentation
+        const selfieSegmentation = new SelfieSegmentation({
+            locateFile: (file) => `https://jsdelivr.net{file}`
+        });
+
+        selfieSegmentation.setOptions({
+            modelSelection: 1, // 1 for landscape/heavy background, 0 for closer portrait
+        });
+
+        selfieSegmentation.onResults(onResults);
+
+        // Access user camera device
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 1280, height: 720, facingMode: "user" } 
+                });
+                videoElement.srcObject = stream;
+                videoElement.addEventListener('loadedmetadata', () => {
+                    requestAnimationFrame(sendToProcessing);
+                });
+            } catch (err) {
+                alert("Camera access denied or unavailable: " + err.message);
+            }
+        }
+
+        async function sendToProcessing() {
+            if (!videoElement.paused && !videoElement.ended) {
+                await selfieSegmentation.send({ image: videoElement });
+            }
+            requestAnimationFrame(sendToProcessing);
+        }
+
+        // Composite frame processor: splits person from background and merges with AI layer
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // 1. Draw the custom background layer first
+            if (backgroundImg.complete) {
+                canvasCtx.drawImage(backgroundImg, 0, 0, canvasElement.width, canvasElement.height);
+            } else {
+                canvasCtx.fillStyle = '#222';
+                canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+            }
+
+            // 2. Configure the mask overlay using the segmentation canvas
+            canvasCtx.globalCompositeOperation = 'destination-out';
+            canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
+
+            // 3. Draw the camera frame selectively only where the person is located
+            canvasCtx.globalCompositeOperation = 'destination-over';
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            canvasCtx.restore();
+        }
+
+        // Mock function connecting the frontend prompt to your AI Generation Engine
+        async function updateBackground() {
+            const prompt = promptInput.value;
+            console.log("Generating background for prompt: " + prompt);
+            
+            // In production, you would fetch from your backend API router here
+            // Example: const response = await fetch('/api/generate-bg', { method: 'POST', body: JSON.stringify({ prompt }) });
+            // const data = await response.json();
+            // backgroundImg.src = data.imageUrl;
+
+            alert("Backend Pipeline Triggered:\nAI will now generate a '" + prompt + "' background canvas asset to slide behind your video feed.");
+        }
+
+        // Initialize webcam on window load
+        window.onload = startCamera;
+    </script>
+</body>
+</html>
